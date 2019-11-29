@@ -18,14 +18,13 @@
   See function PrepareFileTypeList for the files currently extracted.
 
   The purpose of the X-Tension is for teams who want to use a very fast and in-depth
-  forensic tool to do the bulk of the hard work (process a forensic image fully)
-  initially, with a view to then passing the more straight forward files to other
-  tools with different capabilities, such as e-discovery tools. By working this way, should
+  forensic tool to do the bulk of the initial work (process a forensic image), 
+  with a view to then passing the more straight forward files to other
+  tools with different capabilities, such as OCR, e-discovery tools etc. By working this way, should
   further forensic work be required, the X-Ways Forensics case can simply be
-  re-opened without further pre-processing stages being required and the required
-  information can be obtained immediately. In addition, investigation teams are
-  able to use capabilities of other platforms to further their investigations without
-  delay
+  re-opened without further pre-processing stages being required.
+  In addition, investigation teams are able to use capabilities of other platforms 
+  to further their investigations without delay.
 
   It should be executed via the "Refine Volume Snapshot" (RVS, F10) of X-Ways Forensics
 
