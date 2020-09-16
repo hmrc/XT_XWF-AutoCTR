@@ -5,7 +5,7 @@ library XWFAutoCTR;
 
 ###  *** Requirements ***
   This X-Tension is designed for use only with X-Ways Forensics, x64 edition
-  This X-Tension is designed for use only with v16.5 of X-Ways Forensics or later (for now).
+  This X-Tension is designed for use only with v18.9 of X-Ways Forensics or later (for now).
   This X-Tension is not designed for use on Linux or OSX platforms.
 
 ###  *** Usage Disclaimer ***
@@ -42,7 +42,6 @@ library XWFAutoCTR;
 ###  TODOs
    // TODO Ted Smith :
      Write user manual
-     Allow output to be redirected to users choice
 
   *** License ***
   This code is open source software licensed under the [Apache 2.0 License]("http://www.apache.org/licenses/LICENSE-2.0.html")
@@ -52,7 +51,7 @@ library XWFAutoCTR;
 
 ###  *** Collaboration ***
   Collaboration is welcomed, particularly from Delphi or Freepascal developers.
-  This version was created using the Lazarus IDE v2.0.4 and Freepascal v3.0.4.
+  This version was created using the Lazarus IDE v2.0.10 and Freepascal v3.2.0.
   (www.lazarus-ide.org)
 
 }
@@ -95,10 +94,10 @@ begin
   // Get 3rd high byte for service release. We dont need it yet but we might one day
   ServiceRelease := HiByte(nVersion);
 
-  if VerRelease < 1650 then
+  if VerRelease < 1890 then
   begin
      MessageBox(MainWnd, 'Error: ' +
-                        ' Please execute this X-Tension using v16.5 or above ',
+                        ' Please execute this X-Tension using v18.9 or above ',
                         'XWF Auto Container Generator', MB_ICONINFORMATION);
     result := -1;  // Should abort and not run any further
   end
@@ -462,6 +461,7 @@ begin
   // instead of the type descriptor which is 0x20000000 (e.g. "MS Word")
   // Because of the size of the pictures group, we grab all of those.
   // If the item is not a picture, then we do a lookup on its type descriptor.
+  // This is why v18.9 or higher is required, as this flag was not avail in earlier versions
 
   IsItAPicture := false;
 
