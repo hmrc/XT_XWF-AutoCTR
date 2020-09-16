@@ -1,13 +1,12 @@
 library XWFAutoCTR;
 {
  # XWF Auto CTR (An X-Tension to Automate Extraction of Common File Types to a Container)
+   Most recently tested on : v20.0 (Sept 2020)
 
 ###  *** Requirements ***
-  This X-Tension is designed for use only with X-Ways Forensics
-  This X-Tension is designed for use only with v16.5 or later.
+  This X-Tension is designed for use only with X-Ways Forensics, x64 edition
+  This X-Tension is designed for use only with v16.5 of X-Ways Forensics or later (for now).
   This X-Tension is not designed for use on Linux or OSX platforms.
-  There is a compiled 32 and 64 bit version of the X-Tension to be used with the
-  corresponding version of X-Ways Forensics.
 
 ###  *** Usage Disclaimer ***
   This X-Tension is a Proof-Of-Concept Alpha level prototype, and is not finished.
@@ -18,6 +17,9 @@ library XWFAutoCTR;
   The X-Tension helps automate and speed up the process of extracting specified
   files that match certain pre-defined categories to an XWF evidence container.
   See function PrepareFileTypeList for the files currently extracted.
+
+  Note it uses the "Type Description" of XWF to classify file types.
+  Not the 'Type' or 'Category' classifications.
 
   The purpose of the X-Tension is for teams who want to use a very fast and in-depth
   forensic tool to do the bulk of the hard work (process a forensic image fully)
@@ -41,7 +43,6 @@ library XWFAutoCTR;
    // TODO Ted Smith :
      Write user manual
      Allow output to be redirected to users choice
-     Apply version check
 
   *** License ***
   This code is open source software licensed under the [Apache 2.0 License]("http://www.apache.org/licenses/LICENSE-2.0.html")
@@ -58,7 +59,7 @@ library XWFAutoCTR;
 {$mode Delphi}{$H+}
 
 uses
-  Classes, XT_API, windows, sysutils, contnrs, md5;
+  Classes, XT_API, windows, sysutils, contnrs, md5, LazUTF8, lazutf8classes;
 
   const
     BufEvdNameLen=256;
@@ -83,29 +84,48 @@ var
   // Evidence name is global for later filesave by name
   pBufEvdName              : array[0..BufEvdNameLen-1] of WideChar;
 
+  VerRelease               : LongInt = Default(LongInt);
+  ServiceRelease           : Byte    = Default(Byte);
+
 // The first call needed by the X-Tension API. Must return 1 for the X-Tension to continue.
 function XT_Init(nVersion, nFlags: DWord; hMainWnd: THandle; lpReserved: Pointer): LongInt; stdcall; export;
 begin
-  // Just make sure everything is hunkydory and set to zero
-  itemcount                := 0;
-  TotalDataInBytes         := 0;
-  infoflag_Error           := 0;
-  infoflag_NotVerified     := 0;
-  infoflag_TooSmall        := 0;
-  infoflag_TotallyUnknown  := 0;
-  infoflag_Confirmed       := 0;
-  infoflag_NotConfirmed    := 0;
-  infoflag_NewlyIdentified := 0;
-  infoflag_MisMatch        := 0;
-  hContainerFile           := -1;
-  FillChar(pBufEvdName, SizeOf(pBufEvdName), $00);
-  // Check XWF is ready to go. 1 is normal mode, 2 is thread-safe. Using 1 for now
-  if Assigned(XWF_OutputMessage) then
+  // Get high 2 bytes from nVersion
+  VerRelease := Hi(nVersion);
+  // Get 3rd high byte for service release. We dont need it yet but we might one day
+  ServiceRelease := HiByte(nVersion);
+
+  if VerRelease < 1650 then
   begin
-    Result := 1; // lets go
-    MainWnd:= hMainWnd;
+     MessageBox(MainWnd, 'Error: ' +
+                        ' Please execute this X-Tension using v16.5 or above ',
+                        'XWF Auto Container Generator', MB_ICONINFORMATION);
+    result := -1;  // Should abort and not run any further
   end
-  else Result := -1; // stop
+  else
+    begin
+      result := 1;  // Continue, with no need for warning
+      // Just make sure everything is hunkydory and set to zero
+      itemcount                := 0;
+      TotalDataInBytes         := 0;
+      infoflag_Error           := 0;
+      infoflag_NotVerified     := 0;
+      infoflag_TooSmall        := 0;
+      infoflag_TotallyUnknown  := 0;
+      infoflag_Confirmed       := 0;
+      infoflag_NotConfirmed    := 0;
+      infoflag_NewlyIdentified := 0;
+      infoflag_MisMatch        := 0;
+      hContainerFile           := -1;
+      FillChar(pBufEvdName, SizeOf(pBufEvdName), $00);
+      // Check XWF is ready to go. 1 is normal mode, 2 is thread-safe. Using 1 for now
+      if Assigned(XWF_OutputMessage) then
+      begin
+        Result := 1; // lets go
+        MainWnd:= hMainWnd;
+      end
+      else Result := -1; // stop
+    end;
 end;
 
 // Used by the button in the X-Tension dialog to tell the user about the X-Tension
@@ -115,10 +135,53 @@ begin
   result := 0;
   MessageBox(MainWnd,  ' XWF Auto CTR X-Tension for X-Ways Forensics. ' +
                        ' To be executed only via the RVS dialog of XWF v16.5 or higher. ' +
-                       ' Developed by Ted Smith (c) 2019.' +
+                       ' Developed by Ted Smith. Released under the OGL (Open Government License)' +
                        ' Intended use : to automate extraction of common file types to an evidence container.'
                       ,'XWF Auto CTR', MB_ICONINFORMATION);
 end;
+// GetOutputLocation : Gets the output location; i.e. where to put the container
+// Returns empty string on failure
+function GetOutputLocation() : widestring; stdcall; export;
+const
+  BufLen=2048;
+var
+  Buf, outputmessage : array[0..Buflen-1] of WideChar;
+  UsersSpecifiedPath : array[0..Buflen-1] of WideChar;
+  UserInputResultVal : Int64 = Default(Int64);
+  OutputOK           : Boolean = Default(Boolean);
+begin
+  result              := Default(widestring);
+  outputmessage := '';
+  FillChar(outputmessage, Length(outputmessage), $00);
+  FillChar(UsersSpecifiedPath, Length(UsersSpecifiedPath), $00);
+  FillChar(Buf, Length(Buf), $00);
+
+  // Set default output location
+  UsersSpecifiedPath := 'C:\temp\';
+
+  // Ask XWF to ask the user if s\he wants to override that default location
+  UserInputResultVal := XWF_GetUserInput('Save container to...', @UsersSpecifiedPath, Length(UsersSpecifiedPath), $00000002);
+  // If output location exists, use it, otherwise, create it
+  if DirectoryExists(UsersSpecifiedPath) then
+  begin
+    result            := UTF8ToUTF16(UsersSpecifiedPath);
+    outputmessage     := 'Container will be saved to existing folder : ' + UsersSpecifiedPath;
+    lstrcpyw(Buf, outputmessage);
+    XWF_OutputMessage(@Buf[0], 0);
+  end
+  else
+  begin
+    OutputOK := ForceDirectories(UsersSpecifiedPath);
+    if OutputOK then
+    begin
+      result            := UTF8ToUTF16(UsersSpecifiedPath);
+      outputmessage     := 'Container will be saved to new folder : ' + UsersSpecifiedPath;
+      lstrcpyw(Buf, outputmessage);
+      XWF_OutputMessage(@Buf[0], 0);
+    end;
+  end;
+end;
+
 // Returns a human formatted version of the time
 function TimeStampIt(TheDate : TDateTime) : string; stdcall; export;
 begin
@@ -204,85 +267,73 @@ end;
 
 function PrepareFileTypeList(slName : TStringList) : TStringList; stdcall; export;
 begin
-  slName := TStringList.Create;
-  slName.Sorted := true; // Itterating a sorted list will be fractionally quicker
+  result := nil;
+  try
+    slName := TStringList.Create;
+    slName.Sorted := true; // Itterating a sorted list will be fractionally quicker
 
-  // These are the File Type Descriptors as defined by XWF and as returned by
-  // XWF_GetItemType with flags 0x4000000.
-  // We may add or remove from this list over time, or on an individual needs basis.
+    // These are the File Type Descriptors as defined by XWF and as returned by
+    // XWF_GetItemType with flags 0x4000000.
+    // We may add or remove from this list over time, or on an individual needs basis.
 
-  // *** Documents
-  slName.Add('MS Word');
-  slName.Add('Wordpad');
-  slName.Add('MS Word Document macro-enabled');
-  slName.Add('MS Word 2007');
-  slName.Add('MS Word Template');
-  slName.Add('MS Word 2007 Template');
-  slName.Add('Lotus Word Pro');
-  slName.Add('Mac Write');
-  slName.Add('OpenOffice Impress');
-  slName.Add('OpenOffice Writer');
-  slName.Add('MS OneNote');
-  slName.Add('OmniPage Document');
-  slName.Add('OpenOffice/StarOffice');
-  slName.Add('OpenDocument text template');
-  slName.Add('Apple iWork Pages');
-  slName.Add('Adobe Acrobat');
-  slName.Add('MS PowerPoint');
-  slName.Add('MS PowerPoint');
-  slName.Add('PowerPoint Open XML Macro-Enabled Slide Show');
-  slName.Add('MS PowerPoint 2007');
-  slName.Add('MS PowerPoint');
-  slName.Add('PowerPoint Open XML Macro-Enabled Presentation');
-  slName.Add('MS PowerPoint 2007');
-  slName.Add('Publisher Document');
-  slName.Add('Rich Text');
-  slName.Add('Text');
-  slName.Add('Word Document Backup');
-  slName.Add('WordPerfect');
-  slName.Add('WordPerfect');
-  slName.Add('WordPerfect');
-  slName.Add('WordPerfect');
-  slName.Add('WordPerfect');
-  slName.Add('MS Works');
-  slName.Add('Windows Write');
-  // *** Spreadsheets
-  slName.Add('Comma-separated values');
-  slName.Add('OpenOffice Math');
-  slName.Add('OpenOffice Calc');
-  slName.Add('OpenOffice Calc template');
-  slName.Add('StarOffice spreadsheet');
-  slName.Add('StarOffice spreadsheet');
-  slName.Add('StarOffice spreadsheet');
-  slName.Add('Tab-separated values');
-  slName.Add('Works Spreadsheet');
-  slName.Add('Excel/Addin');
-  slName.Add('XLSX Macro-Enabled');
-  slName.Add('Excel Chart');
-  slName.Add('MS Excel backup');
-  slName.Add('MS Works spreadsheet');
-  slName.Add('MS Excel');
-  slName.Add('Excel Binary Spreadsheet');
-  slName.Add('MS Excel 2007');
-  slName.Add('MS Excel 2007');
-  slName.Add('MS Excel template');
-  slName.Add('MS Excel 2007 template');
-  slName.Add('MS Excel 4.0 workbook');
-  // *** E-Mails
-  slName.Add('E-mail message');
-  slName.Add('OSX Tiger Mail');
-  slName.Add('MS Outlook, PMMail');
-  slName.Add('olk14Contact');
-  slName.Add('MS Outlook 2011 for Mac');
-  slName.Add('MS Outlook 2011 for Mac');
-  slName.Add('MS Outlook 2011 for Mac');
-  slName.Add('nk2 for Mac');
-  slName.Add('MS Outlook 2011 for Mac');
-  slName.Add('MS Outlook 2014 for Mac');
-  slName.Add('MS Outlook 2014 for Mac');
-  slName.Add('MS Outlook 2014 for Mac');
-
-  result := slName;
+    // *** Documents
+    slName.Add('MS Word');
+    slName.Add('Wordpad');
+    slName.Add('MS Word Document macro-enabled');
+    slName.Add('MS Word 2007');
+    slName.Add('MS Word Template');
+    slName.Add('MS Word 2007 Template');
+    slName.Add('Lotus Word Pro');
+    slName.Add('Mac Write');
+    slName.Add('OpenOffice Impress');
+    slName.Add('OpenOffice Writer');
+    slName.Add('MS OneNote');
+    slName.Add('OmniPage Document');
+    slName.Add('OpenOffice/StarOffice');
+    slName.Add('OpenDocument text template');
+    slName.Add('Apple iWork Pages');
+    slName.Add('Adobe Acrobat');
+    slName.Add('MS PowerPoint');
+    slName.Add('PowerPoint Open XML Macro-Enabled Slide Show');
+    slName.Add('MS PowerPoint 2007');
+    slName.Add('PowerPoint Open XML Macro-Enabled Presentation');
+    slName.Add('Publisher Document');
+    slName.Add('Rich Text');
+    slName.Add('Text');
+    slName.Add('Word Document Backup');
+    slName.Add('WordPerfect');
+    slName.Add('MS Works');
+    slName.Add('Windows Write');
+    // *** Spreadsheets
+    slName.Add('Comma-separated values');
+    slName.Add('OpenOffice Math');
+    slName.Add('OpenOffice Calc');
+    slName.Add('OpenOffice Calc template');
+    slName.Add('StarOffice spreadsheet');
+    slName.Add('Tab-separated values');
+    slName.Add('Works Spreadsheet');
+    slName.Add('Excel/Addin');
+    slName.Add('XLSX Macro-Enabled');
+    slName.Add('Excel Chart');
+    slName.Add('MS Excel backup');
+    slName.Add('MS Works spreadsheet');
+    slName.Add('MS Excel');
+    slName.Add('Excel Binary Spreadsheet');
+    slName.Add('MS Excel 2007');;
+    slName.Add('MS Excel template');
+    slName.Add('MS Excel 2007 template');
+    slName.Add('MS Excel 4.0 workbook');
+    // *** E-Mails
+    slName.Add('E-mail message');
+    slName.Add('OSX Tiger Mail');
+    slName.Add('MS Outlook, PMMail');
+    slName.Add('olk14Contact');
+    slName.Add('nk2 for Mac');
+    slName.Add('MS Outlook 2011 for Mac');
+    slName.Add('MS Outlook 2014 for Mac');
+  finally
+    result := slName;
+  end;
 end;
 
 // This is used for every evidence object when executed via RVS and for each item
@@ -291,9 +342,10 @@ function XT_Prepare(hVolume, hEvidence : THandle; nOpType : DWord; lpReserved : 
 const
   BufLen=256;
 var
-  outputmessage, ContainerFilename, OutputFolder  : array[0..MAX_PATH] of WideChar;
+  outputmessage, ContainerFilename  : array[0..MAX_PATH] of WideChar;
   Buf     : array[0..Buflen-1] of WideChar;
   success : boolean;
+  OutputFolder : Unicodestring;
 
 begin
   itemcount                := 0;
@@ -334,7 +386,7 @@ begin
         lstrcpyw(Buf, outputmessage);
         XWF_OutputMessage(@Buf[0], 0);
 
-        OutputFolder := IncludeTrailingPathDelimiter(GetUserDir + 'Documents');
+        OutputFolder := GetOutputLocation(); // IncludeTrailingPathDelimiter(GetUserDir + 'Documents');
         ContainerFilename := OutputFolder + pBufEvdName + '_EvdContainer.ctr';
         outputmessage := 'Will attempt to write container to ' + ContainerFilename;
         lstrcpyw(Buf, outputmessage);
@@ -344,7 +396,7 @@ begin
         hContainerFile := XWF_CreateContainer(@ContainerFilename, XWF_CTR_TOPLEVELDIR_COMPLETE, lpReserved);
         if hContainerFile > 0 then
         begin
-          outputmessage := 'Evidence container opened and ready for files...';
+          outputmessage := 'Evidence container opened and ready for files. Adding files...please wait';
           lstrcpyw(Buf, outputmessage);
           XWF_OutputMessage(@Buf[0], 0);
 
@@ -386,7 +438,7 @@ end;
 
 // Examines each item in the selected evidence object. The "type category" of the item
 // is then added to a string list for traversal later. Must return 0! -1 if fails.
-function XT_ProcessItem(nItemID : LongWord; lpReserved : Pointer) : integer; stdcall; export;
+function XT_ProcessItemEx(nItemID : LongWord; lpReserved : Pointer) : integer; stdcall; export;
 const
   BufLen=256;
 var
@@ -439,6 +491,12 @@ begin
         // Open the file item. Returns 0 if unsuccessfull.
         hItem := XWF_OpenItem(CurrentVolume, nItemID, $01);
         // Copy the item to the container. Returns 0 if unsuccessfull.
+        {0x00000001: recreate full original path                                            // ENABLED
+         0x00000002: include parent item data (requires flag 0x1)                           // DISABLED currently
+         0x00000004: store hash value in container                                          // ENABLED
+         0x00000010: store comment, if existent, in container (v19.0 and later)             // DISABLED currently
+         0x00000020: store extracted metadata, if available, in container (v19.0 and later) // DISABLED currently
+        }
         intCopyResult := 0;
         intCopyResult := XWF_CopyToContainer(hContainerFile, hItem, $01 or $04, 0, -1, -1, lpReserved);
         XWF_Close(hItem);
@@ -456,7 +514,7 @@ begin
       begin
         AddFileToContainerOrNot := false;
         AddFileToContainerOrNot := LookupFileType(WideCharToString(@lpTypeDescr[0]));
-       if AddFileToContainerOrNot then
+        if AddFileToContainerOrNot then
         begin
           // Open the file item. Returns 0 if unsuccessfull.
           hItem := XWF_OpenItem(CurrentVolume, nItemID, $01);
@@ -467,12 +525,12 @@ begin
 
           // If the copy worked, then intCopyResult will now be greater than zero
           if intCopyResult <> 0 then
-          begin
-            XWF_Close(hItem);
-            MessageBox(MainWnd,  ' Error detected whilst adding a file to the container. Aborting. '
-                                  ,'XWF Auto CTR', MB_ICONINFORMATION);
-            exit;
-          end;
+            begin
+              XWF_Close(hItem);
+              MessageBox(MainWnd,  ' Error detected whilst adding a file to the container. Aborting. '
+                                    ,'XWF Auto CTR', MB_ICONINFORMATION);
+              exit;
+            end;
         end;
       end;
     end;
@@ -591,10 +649,11 @@ exports
   XT_Init,
   XT_About,
   XT_Prepare,
-  XT_ProcessItem,
+  XT_ProcessItemEx,
   XT_Finalize,
   XT_Done,
   // The following functions may not be exported in future. Left in for now.
+  GetOutputLocation,
   TimeStampIt,
   FormatByteSize,
   LookupFileType,

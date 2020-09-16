@@ -23,17 +23,22 @@
     </PublishOptions>
     <RunParams>
       <local>
-        <HostApplicationFilename Value="C:\Program Files\X-Ways Forensics\xwb64.exe"/>
+        <HostApplicationFilename Value="C:\Program Files\X-Ways Forensics Official\xwforensics64.exe"/>
       </local>
       <FormatVersion Value="2"/>
       <Modes Count="1">
         <Mode0 Name="default">
           <local>
-            <HostApplicationFilename Value="C:\Program Files\X-Ways Forensics\xwb64.exe"/>
+            <HostApplicationFilename Value="C:\Program Files\X-Ways Forensics Official\xwforensics64.exe"/>
           </local>
         </Mode0>
       </Modes>
     </RunParams>
+    <RequiredPackages Count="1">
+      <Item1>
+        <PackageName Value="LazUtils"/>
+      </Item1>
+    </RequiredPackages>
     <Units Count="1">
       <Unit0>
         <Filename Value="XWFAutoCTR.lpr"/>
@@ -53,11 +58,9 @@
     </SearchPaths>
     <CodeGeneration>
       <RelocatableUnit Value="True"/>
-      <TargetCPU Value="i386"/>
     </CodeGeneration>
     <Linking>
       <Debugging>
-        <GenerateDebugInfo Value="False"/>
         <DebugInfoType Value="dsDwarf2Set"/>
       </Debugging>
       <Options>
