@@ -15,8 +15,9 @@ library XWFAutoCTR;
 
 ###  *** Functionality Overview ***
   The X-Tension helps automate and speed up the process of extracting specified
-  files that match certain pre-defined categories to an XWF evidence container.
-  See function PrepareFileTypeList for the files currently extracted.
+  files that match certain pre-defined categories to an XWF evidence container saved
+  to a location of the users choosing. See function PrepareFileTypeList for the files 
+  currently extracted.
 
   Note it uses the "Type Description" of XWF to classify file types.
   Not the 'Type' or 'Category' classifications.
