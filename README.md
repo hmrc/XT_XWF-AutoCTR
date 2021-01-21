@@ -1,15 +1,10 @@
 # XWF Auto CTR (An X-Tension to Automate Extraction of Common File Types to a Container)
-   Most recently tested on : v20.0 (Sept 2020)
+   Most recently tested on : v20.0 
 
 ###  *** Requirements ***
   This X-Tension is designed for use only with X-Ways Forensics, x64 edition
   This X-Tension is designed for use only with v18.9 of X-Ways Forensics or later (for now).
   This X-Tension is not designed for use on Linux or OSX platforms.
-
-###  *** Usage Disclaimer ***
-  This X-Tension is a Proof-Of-Concept Alpha level prototype, and is not finished.
-  It has known limitations. You are NOT advised to use it, yet, for any evidential
-  work for criminal courts.
 
 ###  *** Functionality Overview ***
   The X-Tension helps automate and speed up the process of extracting specified

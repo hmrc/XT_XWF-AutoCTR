@@ -83,7 +83,12 @@ var
 
   // Evidence name is global for later filesave by name
   pBufEvdName              : array[0..BufEvdNameLen-1] of WideChar;
-
+  // We want the output folder to be set only once, otherwise the user will be asked
+  // repeatedly for the output path for every evidence object during RVS. Once set
+  // we switch a flag to true so that the location is not asked for again
+  OutputFolder             : Unicodestring;
+  OutputFolderIsSpecified  : boolean = Default(Boolean);
+  // To check release version of XWF for compatability
   VerRelease               : LongInt = Default(LongInt);
   ServiceRelease           : Byte    = Default(Byte);
 
@@ -117,6 +122,7 @@ begin
       infoflag_NewlyIdentified := 0;
       infoflag_MisMatch        := 0;
       hContainerFile           := -1;
+      OutputFolder             := '';   // Set this to empty to start with
       FillChar(pBufEvdName, SizeOf(pBufEvdName), $00);
       // Check XWF is ready to go. 1 is normal mode, 2 is thread-safe. Using 1 for now
       if Assigned(XWF_OutputMessage) then
@@ -160,7 +166,7 @@ begin
   UsersSpecifiedPath := 'C:\temp\';
 
   // Ask XWF to ask the user if s\he wants to override that default location
-  UserInputResultVal := XWF_GetUserInput('Save container to...', @UsersSpecifiedPath, Length(UsersSpecifiedPath), $00000002);
+  UserInputResultVal := XWF_GetUserInput('Save container to folder...', @UsersSpecifiedPath, Length(UsersSpecifiedPath), $00000002);
   // If output location exists, use it, otherwise, create it
   if DirectoryExists(UsersSpecifiedPath) then
   begin
@@ -241,9 +247,9 @@ begin
   EvdSize := -1;
   EvdSize := XWF_GetEvObjProp(hEvd, 16, nil);
 
-  // Get the evidence object name and store in pBufEvdName. 7 = object name
+  // Get the evidence object name and store in pBufEvdName. 8 = abbreviated ext. ev. obj. title (e.g. "HD123, P2)
   intEvdName := -1;
-  intEvdName := XWF_GetEvObjProp(hEvd, 7, @pBufEvdName[0]);
+  intEvdName := XWF_GetEvObjProp(hEvd, 8, @pBufEvdName[0]);
 
   lstrcpyw(Buf, 'Case properties established : OK');
   XWF_OutputMessage(@Buf[0], 0);
@@ -414,7 +420,7 @@ var
   outputmessage, ContainerFilename  : array[0..MAX_PATH] of WideChar;
   Buf     : array[0..Buflen-1] of WideChar;
   success : boolean;
-  OutputFolder : Unicodestring;
+
 
 begin
   itemcount                := 0;
@@ -447,62 +453,82 @@ begin
       lstrcpyw(Buf, outputmessage);
       XWF_OutputMessage(@Buf[0], 0);
 
-      // Now gather the evidence object metadata and build the headers for the HTML output
+      // Now gather the evidence object metadata
       success := GetEvdData(hEvidence);
+      // Only continue if metadata retrieved OK. Abort otherwise.
       if success then
       begin
         outputmessage := 'Creating evidence container...';
         lstrcpyw(Buf, outputmessage);
         XWF_OutputMessage(@Buf[0], 0);
 
-        OutputFolder := GetOutputLocation(); // IncludeTrailingPathDelimiter(GetUserDir + 'Documents');
-        ContainerFilename := OutputFolder + pBufEvdName + '_EvdContainer.ctr';
-        outputmessage := 'Will attempt to write container to ' + ContainerFilename;
-        lstrcpyw(Buf, outputmessage);
-        XWF_OutputMessage(@Buf[0], 0);
-
-        // Try to create the output container. If fails, abort.
-        hContainerFile := XWF_CreateContainer(@ContainerFilename, XWF_CTR_TOPLEVELDIR_COMPLETE, lpReserved);
-        if hContainerFile > 0 then
+        if OutputFolderIsSpecified = false then
         begin
-          outputmessage := 'Evidence container opened and ready for files. Adding files...please wait';
+          OutputFolder := GetOutputLocation();
+          if DirectoryExists(OutputFolder) then
+          begin
+            OutputFolderIsSpecified := true;
+          end
+          else
+          begin
+            outputmessage := 'Could not create output folder. Aborting execution.';
+            lstrcpyw(Buf, outputmessage);
+            XWF_OutputMessage(@Buf[0], 0);
+            OutputFolderIsSpecified := false;
+          end;
+        end;
+
+        if OutputFolderIsSpecified = true then
+        begin
+          ContainerFilename := OutputFolder + pBufEvdName + '.ctr';
+          outputmessage := 'Will attempt to write container to ' + ContainerFilename;
           lstrcpyw(Buf, outputmessage);
           XWF_OutputMessage(@Buf[0], 0);
 
-          // We need our X-Tension to return 0x01, 0x08, 0x10, and 0x20, depending on exactly what we want
-          // We can change the result using or combinations as we need, as follows:
-          // Call XT_ProcessItem for each item in the evidence object : (0x01)  : XT_PREPARE_CALLPI
-          result := XT_PREPARE_CALLPI;  // Tell XWF to proceed and call XT_ProcessItem
-          CurrentVolume := hVolume;
-        end
-        else
-        begin
-         outputmessage := 'Unable to create or write to evidence container : ERROR';
-         lstrcpyw(Buf, outputmessage);
-         XWF_OutputMessage(@Buf[0], 0);
-         result := -3  // Tell XWF to abort
-        end;
-      end
-      else
-      begin
-        outputmessage := 'Unable to retrieve case properties...ERROR';
-        lstrcpyw(Buf, outputmessage);
-        XWF_OutputMessage(@Buf[0], 0);
-        result := -3  // Tell XWF to abort
-      end;
+          // Try to create the output container. If fails, abort.
+          hContainerFile := XWF_CreateContainer(@ContainerFilename, XWF_CTR_TOPLEVELDIR_COMPLETE, lpReserved);
+          if hContainerFile > 0 then
+          begin
+            outputmessage := 'Evidence container opened and ready for files. Adding files...please wait';
+            lstrcpyw(Buf, outputmessage);
+            XWF_OutputMessage(@Buf[0], 0);
 
-      // XWF will intelligently skip certain items due to, for example, first cluster not known etc
-      // In the future, if we need to change it to do all items regardless, change the result
-      // of this function to 0 and then uncomment the for loop code below.
-      // Then XWF will call XT_ProcessItem for every item in the evidence object
-      // even if the file is non-sensicle.
-      {
-      for i := 0 to itemcount -1 do
-      begin
-        XT_ProcessItem(i, nil);
-      end;
-      }
+            // We need our X-Tension to return 0x01, 0x08, 0x10, and 0x20, depending on exactly what we want
+            // We can change the result using or combinations as we need, as follows:
+            // Call XT_ProcessItem for each item in the evidence object : (0x01)  : XT_PREPARE_CALLPI
+            result := XT_PREPARE_CALLPI;  // Tell XWF to proceed and call XT_ProcessItem
+            CurrentVolume := hVolume;
+          end
+          else
+          begin
+           outputmessage := 'Unable to create or write to evidence container: ' + ContainerFilename;
+           lstrcpyw(Buf, outputmessage);
+           XWF_OutputMessage(@Buf[0], 0);
+           result := -3  // Tell XWF to abort
+          end;
+        end;
+
+      end   // Metdata lookup end.
+      else  // Metatdata could not be retrived properly.
+        begin
+          outputmessage := 'Unable to retrieve case properties...aborting execution.';
+          lstrcpyw(Buf, outputmessage);
+          XWF_OutputMessage(@Buf[0], 0);
+          result := -3  // Tell XWF to abort
+        end;
     end;
+
+    // XWF will intelligently skip certain items due to, for example, first cluster not known etc
+    // In the future, if we need to change it to do all items regardless, change the result
+    // of this function to 0 and then uncomment the for loop code below.
+    // Then XWF will call XT_ProcessItem for every item in the evidence object
+    // even if the file is non-sensicle.
+    {
+    for i := 0 to itemcount -1 do
+    begin
+     XT_ProcessItem(i, nil);
+    end;
+    }
 end;
 
 // Examines each item in the selected evidence object. The "type category" of the item
@@ -511,16 +537,21 @@ function XT_ProcessItemEx(nItemID : LongWord; lpReserved : Pointer) : integer; s
 const
   BufLen=256;
 var
-  ItemSize     : Int64;
-  lpTypeDescr  : array[0..Buflen-1] of WideChar;
-  itemtypeinfoflag, intCopyResult : integer;
+  ItemSize          : Int64;
+  lpTypeDescr       : array[0..Buflen-1] of WideChar;
+  Buf               : array[0..Buflen-1] of WideChar;
+  lpReportTableString : array[0..Buflen-1] of WideChar;
+  outputmessage     : array[0..Buflen-1] of WideChar;
+  itemtypeinfoflag, intCopyResult, ReportTableAdditionSuccess : integer;
   hItem : THandle;
   IsItAPicture, AddFileToContainerOrNot : boolean;
 begin
   ItemSize := -1;
 
-  // Make sure buffer is empty and filled with zeroes
+  // Make sure buffers are empty and filled with zeroes
   FillChar(lpTypeDescr, Length(lpTypeDescr), #0);
+  FillChar(lpReportTableString, Length(lpTypeDescr), #0);
+  FillChar(Buf, Length(lpTypeDescr), #0);
 
   // Get the size of the item
   ItemSize := XWF_GetItemSize(nItemID);
@@ -569,6 +600,19 @@ begin
         }
         intCopyResult := 0;
         intCopyResult := XWF_CopyToContainer(hContainerFile, hItem, $01 or $04, 0, -1, -1, lpReserved);
+        // Add report table text to show file was exported to container.
+        // Only check for failure, which is zero.
+        // 1 if the file was successfully and newly associated with the report table,
+        // 2 if that association existed before, or
+        // 0 in case of failure
+        lpReportTableString := 'DFG Sent to CTR';
+        ReportTableAdditionSuccess := XWF_AddToReportTable(nItemID, @lpReportTableString[0], $01);
+        if ReportTableAdditionSuccess = 0 then
+        begin
+          outputmessage := 'Unable to create Report Table text entry for item: ' + IntToStr(hItem);
+          lstrcpyw(Buf, outputmessage);
+          XWF_OutputMessage(@Buf[0], 0);
+        end;
         XWF_Close(hItem);
 
         // If the copy worked, then intCopyResult will now be greater than zero
@@ -580,7 +624,7 @@ begin
           exit;
         end;
       end
-      else
+      else  // It is not a picture, so lets lookup what file type it is, and send it to container if its a match
       begin
         AddFileToContainerOrNot := false;
         AddFileToContainerOrNot := LookupFileType(WideCharToString(@lpTypeDescr[0]));
@@ -591,6 +635,20 @@ begin
           // Copy the item to the container. Returns 0 if unsuccessfull.
           intCopyResult := 0;
           intCopyResult := XWF_CopyToContainer(hContainerFile, hItem, $01 or $04, 0, -1, -1, lpReserved);
+
+          // Add report table text to show file was exported to container.
+          // Only check for failure, which is zero.
+          // 1 if the file was successfully and newly associated with the report table,
+          // 2 if that association existed before, or
+          // 0 in case of failure
+          lpReportTableString := 'DFG Sent to CTR';
+          ReportTableAdditionSuccess := XWF_AddToReportTable(nItemID, @lpReportTableString[0], $01);
+          if ReportTableAdditionSuccess = 0 then
+          begin
+            outputmessage := 'Unable to create Report Table text entry for item: ' + IntToStr(hItem);
+            lstrcpyw(Buf, outputmessage);
+            XWF_OutputMessage(@Buf[0], 0);
+          end;
           XWF_Close(hItem);
 
           // If the copy worked, then intCopyResult will now be greater than zero
